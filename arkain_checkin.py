@@ -188,9 +188,98 @@ class ArkainSession:
         try:
             # 尝试多种签到方式
             
-            # 方法1: 查找签到API端点
-            dashboard_response = self.session.get(f"{self.base_url}/dashboard")
-            content = dashboard_response.text
+            # 方法1: 首先获取登录后的页面内容（可能是主页面）
+            logger.info("获取登录后页面内容...")
+            
+            # 尝试多个可能的页面URL
+            page_urls = [
+                f"{self.base_url}/dashboard",
+                f"{self.base_url}/",  # 登录后可能重定向到主页
+                f"{self.console_url}/dashboard",
+                "https://ap-south-1.arkain.io/dashboard",
+                "https://ap-northeast-2.arkain.io/dashboard",
+                "https://us-west-2.arkain.io/dashboard",
+                "https://eu-central-1.arkain.io/dashboard"
+            ]
+            
+            content = ""
+            for url in page_urls:
+                try:
+                    logger.info(f"尝试获取页面内容: {url}")
+                    response = self.session.get(url)
+                    
+                    if response.status_code == 200:
+                        content = response.text
+                        # 检查是否包含签到相关内容
+                        if "daily check-in" in content.lower() or "check" in content.lower():
+                            logger.info(f"在页面 {url} 找到签到相关内容")
+                            break
+                except Exception as e:
+                    logger.warning(f"获取页面 {url} 失败: {e}")
+                    continue
+            
+            if not content:
+                logger.warning("无法获取任何页面内容，使用默认方法")
+                content = ""
+            
+            # 方法0: 检测"Daily check-in"按钮的特定模式
+            if content:
+                # 查找Daily check-in按钮的点击事件或表单提交
+                daily_checkin_patterns = [
+                    # onclick事件
+                    r'onclick=["\'][^"\']*daily[^"\']*check[^"\']*["\']',
+                    # data属性
+                    r'data-[^=]*=["\'][^"\']*daily[^"\']*check[^"\']*["\']',
+                    # 按钮标签
+                    r'<button[^>]*>.*Daily check-in.*</button>',
+                    r'<button[^>]*daily[^>]*check[^>]*>[^<]*</button>',
+                    # 链接标签
+                    r'<a[^>]*>.*Daily check-in.*</a>',
+                    r'<a[^>]*daily[^>]*check[^>]*>[^<]*</a>',
+                    # 任何包含daily check的URL或属性
+                    r'["\']([^"\']*daily[^"\']*check[^"\']*)["\']',
+                    # form action
+                    r'<form[^>]*action=["\'][^"\']*daily[^"\']*check[^"\']*["\']',
+                    # JavaScript函数调用
+                    r'\.(daily|check)[^(]*\([^)]*\)',
+                ]
+                
+                found_checkin = False
+                for pattern in daily_checkin_patterns:
+                    matches = re.findall(pattern, content, re.IGNORECASE | re.DOTALL)
+                    for match in matches:
+                        logger.info(f"找到Daily check-in模式: {match}")
+                        found_checkin = True
+                        
+                        # 如果是URL，尝试访问
+                        if match.startswith('/') or 'http' in match:
+                            checkin_url = match.strip('"\'')
+                            if not checkin_url.startswith('http'):
+                                checkin_url = urljoin(self.base_url, checkin_url)
+                            
+                            try:
+                                logger.info(f"尝试Daily check-in URL: {checkin_url}")
+                                # 尝试POST请求
+                                response = self.session.post(checkin_url)
+                                if response.status_code == 200:
+                                    if any(word in response.text.lower() for word in ['success', 'completed', 'done', 'already']):
+                                        logger.info("Daily check-in成功")
+                                        return True
+                                # 尝试GET请求
+                                response = self.session.get(checkin_url)
+                                if response.status_code == 200:
+                                    if any(word in response.text.lower() for word in ['success', 'completed', 'done', 'already']):
+                                        logger.info("Daily check-in成功（GET）")
+                                        return True
+                            except Exception as e:
+                                logger.warning(f"Daily check-in URL失败: {e}")
+                        else:
+                            # 如果不是URL，可能是JavaScript代码，尝试提取相关信息
+                            logger.info(f"检测到非URL的Daily check-in模式: {match}")
+                
+                # 如果找到了Daily check-in按钮但无法处理，尝试通用签到方法
+                if found_checkin:
+                    logger.info("找到Daily check-in按钮，尝试通用的签到方法")
             
             # 查找可能的签到API
             api_patterns = [
@@ -301,9 +390,8 @@ def main():
         if not arkain.login(EMAIL, PASSWORD):
             raise Exception("登录失败")
         
-        # 导航到仪表板
-        if not arkain.navigate_to_dashboard():
-            logger.warning("导航仪表板失败，尝试在当前页面查找签到功能")
+        # 登录成功后直接尝试签到（Daily check-in按钮在登录后的主页面）
+        logger.info("登录成功，直接在当前页面查找签到功能")
         
         # 执行签到
         if arkain.perform_checkin():
