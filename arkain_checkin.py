@@ -136,12 +136,16 @@ class ArkainSession:
             
             # 尝试多种方式找到邮箱输入框
             email_selectors = [
+                "//input[@id='email-input']",
                 "//input[@type='email']",
                 "//input[@name='email']",
                 "//input[@id='email']",
                 "//input[contains(@placeholder, 'email')]",
                 "//input[contains(@placeholder, 'Email')]",
-                "//input[contains(@aria-label, 'email')]"
+                "//input[contains(@aria-label, 'email')]",
+                "//input[contains(@class, 'email')]",
+                "//input[contains(@name, 'email')]",
+                "//input[contains(@id, 'email')]"
             ]
             
             email_found = False
@@ -156,6 +160,7 @@ class ArkainSession:
             
             # 尝试多种方式找到密码输入框
             password_selectors = [
+                "//input[@id='password-input']",
                 "//input[@type='password']",
                 "//input[@name='password']",
                 "//input[@id='password']",
@@ -176,19 +181,55 @@ class ArkainSession:
             # 查找并点击登录按钮
             login_button_selectors = [
                 "//button[@type='submit']",
-                "//button[contains(text(), 'Sign In')]",
                 "//button[contains(text(), 'Login')]",
+                "//button[contains(text(), 'Sign In')]",
+                "//button[contains(text(), 'Sign in')]",
                 "//button[contains(text(), '登录')]",
                 "//input[@type='submit']",
+                "//button[contains(@class, 'primaryfill')]",
                 "//button[contains(@class, 'btn') and contains(@class, 'primary')]",
-                "//button[contains(text(), 'Sign in')]"
+                "//button[contains(@aria-label, 'Login')]"
             ]
             
             login_clicked = False
             for selector in login_button_selectors:
-                if self.wait_and_click(selector, description="登录按钮"):
-                    login_clicked = True
-                    break
+                try:
+                    elements = self.driver.find_elements(By.XPATH, selector)
+                    for element in elements:
+                        if element.is_displayed():
+                            # 等待按钮启用（移除disabled属性）
+                            logger.info(f"找到登录按钮，等待启用...")
+                            try:
+                                WebDriverWait(self.driver, 15).until(
+                                    lambda driver: element.get_attribute("disabled") is None or element.get_attribute("disabled") != "true"
+                                )
+                                logger.info("登录按钮已启用")
+                            except TimeoutException:
+                                logger.warning("登录按钮仍然被禁用，尝试直接点击")
+                            
+                            # 尝试点击
+                            try:
+                                self.driver.execute_script("arguments[0].scrollIntoView(true);", element)
+                                time.sleep(1)
+                                element.click()
+                                logger.info("成功点击登录按钮")
+                                login_clicked = True
+                                break
+                            except Exception as click_error:
+                                logger.warning(f"点击登录按钮失败: {click_error}")
+                                # 尝试使用JavaScript点击
+                                try:
+                                    self.driver.execute_script("arguments[0].click();", element)
+                                    logger.info("使用JavaScript成功点击登录按钮")
+                                    login_clicked = True
+                                    break
+                                except Exception as js_error:
+                                    logger.warning(f"JavaScript点击也失败: {js_error}")
+                    if login_clicked:
+                        break
+                except Exception as e:
+                    logger.debug(f"选择器 {selector} 失败: {e}")
+                    continue
             
             if not login_clicked:
                 logger.error("未找到登录按钮")
