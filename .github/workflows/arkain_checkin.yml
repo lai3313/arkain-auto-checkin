@@ -18,9 +18,25 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install uv
         run: |
-          pip install -r requirements.txt
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install Chrome and dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget gnupg unzip curl
+          sudo wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list'
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+
+      - name: Install Python dependencies
+        run: |
+          uv venv
+          source .venv/bin/activate
+          uv pip install -r requirements.txt
 
       - name: Run Arkain check-in
         env:
@@ -28,4 +44,6 @@ jobs:
           ARKAIN_PASSWORD: ${{ secrets.ARKAIN_PASSWORD }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python arkain_checkin.py
+        run: |
+          source .venv/bin/activate
+          python arkain_checkin.py
