@@ -1,16 +1,17 @@
 # Arkain.io 自动签到系统
 
-这是一个基于GitHub Actions的Arkain.io全自动签到系统，使用Python requests库实现，无需浏览器支持。
+这是一个基于GitHub Actions的Arkain.io全自动签到系统，使用Python Selenium库实现浏览器自动化，完美支持JavaScript渲染和复杂登录流程。
 
 ## 功能特性
 
 - ✅ 全自动登录Arkain.io账户
-- ✅ 智能签到功能
+- ✅ 智能签到功能，支持多种按钮类型
 - ✅ Telegram通知支持
 - ✅ GitHub Actions自动调度
-- ✅ 无需浏览器，轻量级运行
+- ✅ 真实浏览器环境，完美模拟用户操作
 - ✅ 错误处理和日志记录
 - ✅ 多区域服务器支持
+- ✅ 支持JavaScript渲染和动态内容加载
 
 ## 环境变量配置
 
@@ -29,20 +30,39 @@
 2. 获取Bot Token
 3. 获取Chat ID：与机器人对话发送消息后访问 `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates`
 
-## 本地测试
+### 本地测试
 
-### 环境要求
+#### 环境要求
 
 - Python 3.8+
-- pip
+- uv (推荐的Python包管理器)
+- Google Chrome浏览器
 
-### 安装依赖
+#### 安装依赖
 
 ```bash
-pip install -r requirements.txt
+# 安装uv (如果尚未安装)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 创建虚拟环境并安装依赖
+uv venv
+source .venv/bin/activate
+uv pip install -r requirements.txt
 ```
 
-### 运行测试
+#### 安装Chrome浏览器
+
+```bash
+# Ubuntu/Debian系统
+sudo apt-get update
+sudo apt-get install -y wget gnupg unzip curl
+sudo wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list'
+sudo apt-get update
+sudo apt-get install -y google-chrome-stable
+```
+
+#### 运行测试
 
 ```bash
 # 设置环境变量
@@ -52,13 +72,8 @@ export TELEGRAM_BOT_TOKEN="your_bot_token"  # 可选
 export TELEGRAM_CHAT_ID="your_chat_id"      # 可选
 
 # 运行签到脚本
+source .venv/bin/activate
 python arkain_checkin.py
-```
-
-或者使用测试脚本：
-
-```bash
-python test_requests.py
 ```
 
 ## GitHub Actions配置
@@ -72,12 +87,13 @@ python test_requests.py
 
 ## 工作原理
 
-1. **登录流程**：使用requests库模拟登录Arkain.io
-2. **签到检测**：智能检测"Daily check-in"按钮和相关API端点
-3. **直接签到**：登录成功后直接在主页面查找并触发签到功能
-4. **多区域支持**：自动尝试多个Arkain服务器区域
-5. **错误处理**：完善的异常处理和日志记录
-6. **通知系统**：成功/失败时发送Telegram通知
+1. **浏览器自动化**：使用Selenium控制Chrome浏览器进行真实用户操作模拟
+2. **智能登录**：自动识别多种登录表单格式，支持复杂认证流程
+3. **签到检测**：智能检测"Daily check-in"按钮，支持动态加载内容
+4. **JavaScript支持**：完美处理JavaScript渲染的页面和AJAX请求
+5. **多区域支持**：自动尝试多个Arkain服务器区域
+6. **错误处理**：完善的异常处理和日志记录
+7. **通知系统**：成功/失败时发送Telegram通知
 
 ## 支持的服务器区域
 
@@ -126,6 +142,14 @@ python test_requests.py
 - ✅ 代码开源，无恶意功能
 
 ## 更新日志
+
+### v3.0.0
+- 🔄 迁移到Selenium浏览器自动化
+- 🌐 完美支持JavaScript渲染和动态内容
+- 🎯 增强登录检测：支持多种登录表单格式
+- 🚀 真实浏览器环境：完美模拟用户操作
+- 🔍 智能元素检测：支持动态加载的签到按钮
+- 📈 大幅提升成功率：解决复杂认证流程问题
 
 ### v2.1.0
 - 🎯 优化签到检测：专门针对"Daily check-in"按钮
