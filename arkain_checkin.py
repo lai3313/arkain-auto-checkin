@@ -75,15 +75,145 @@ class ArkainSession:
             chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
             chrome_options.add_experimental_option('useAutomationExtension', False)
             
-            # 使用webdriver-manager自动管理ChromeDriver
-            service = Service(ChromeDriverManager().install())
-            self.driver = webdriver.Chrome(service=service, options=chrome_options)
-            self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            # 尝试使用系统Chromium
+            chromium_paths = [
+                '/snap/bin/chromium',
+                '/usr/bin/chromium-browser',
+                '/usr/bin/chromium',
+                '/usr/bin/google-chrome',
+                '/usr/bin/google-chrome-stable'
+            ]
             
-            logger.info("Chrome WebDriver初始化成功")
+            chromium_path = None
+            for path in chromium_paths:
+                if os.path.exists(path):
+                    chromium_path = path
+                    logger.info(f"找到Chromium/Chrome: {path}")
+                    break
+            
+            if chromium_path:
+                chrome_options.binary_location = chromium_path
+                logger.info(f"设置Chrome二进制文件位置: {chromium_path}")
+                
+                # 尝试不同的ChromeDriver设置
+                try:
+                    # 首先尝试使用webdriver-manager
+                    service = Service(ChromeDriverManager().install())
+                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                    logger.info("使用webdriver-manager成功初始化WebDriver")
+                except Exception as driver_error:
+                    logger.warning(f"使用webdriver-manager失败: {driver_error}")
+                    
+                    # 尝试不指定service，让Selenium自动查找
+                    try:
+                        self.driver = webdriver.Chrome(options=chrome_options)
+                        logger.info("使用系统默认ChromeDriver成功初始化WebDriver")
+                    except Exception as system_error:
+                        logger.warning(f"使用系统默认ChromeDriver失败: {system_error}")
+                        
+                        # 最后尝试手动指定chromedriver路径
+                        chromedriver_paths = [
+                            '/usr/bin/chromedriver',
+                            '/snap/bin/chromium.chromedriver',
+                            '/usr/local/bin/chromedriver'
+                        ]
+                        
+                        for driver_path in chromedriver_paths:
+                            if os.path.exists(driver_path):
+                                try:
+                                    service = Service(driver_path)
+                                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                                    logger.info(f"使用手动指定ChromeDriver成功: {driver_path}")
+                                    break
+                                except Exception as manual_error:
+                                    logger.warning(f"使用手动ChromeDriver失败 {driver_path}: {manual_error}")
+                                    continue
+                        else:
+                            raise Exception("所有ChromeDriver初始化方法都失败了")
+            else:
+                # 回退到原来的方式
+                logger.info("未找到系统Chromium，使用webdriver-manager")
+                service = Service(ChromeDriverManager().install())
+                self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            
+            if self.driver:
+                self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+                logger.info("Chrome WebDriver初始化成功")
+            else:
+                raise Exception("WebDriver初始化失败：driver对象为空")
+                
         except Exception as e:
             logger.error(f"Chrome WebDriver初始化失败: {e}")
             raise
+
+    def close_popup(self):
+        """关闭登录后的弹窗"""
+        logger.info("尝试关闭登录后的弹窗...")
+        
+        # 等待页面稳定
+        time.sleep(2)
+        
+        # 常见的弹窗关闭按钮选择器
+        popup_close_selectors = [
+            # X关闭按钮
+            "//button[contains(text(), '×')]",
+            "//button[contains(text(), '✕')]",
+            "//button[contains(@class, 'close')]",
+            "//button[contains(@aria-label, 'close')]",
+            "//button[contains(@aria-label, 'Close')]",
+            "//span[contains(@class, 'close')]",
+            "//span[contains(@aria-label, 'close')]",
+            "//div[contains(@class, 'close')]",
+            "//div[contains(@aria-label, 'close')]",
+            # 通用关闭按钮
+            "//button[contains(text(), 'Close')]",
+            "//button[contains(text(), 'close')]",
+            "//button[contains(text(), '关闭')]",
+            "//a[contains(text(), 'Close')]",
+            "//a[contains(text(), 'close')]",
+            "//a[contains(text(), '关闭')]",
+            # 覆盖层点击关闭
+            "//div[contains(@class, 'modal-backdrop')]",
+            "//div[contains(@class, 'overlay')]",
+            "//div[contains(@class, 'popup-overlay')]"
+        ]
+        
+        popup_closed = False
+        for selector in popup_close_selectors:
+            try:
+                elements = self.driver.find_elements(By.XPATH, selector)
+                for element in elements:
+                    if element.is_displayed() and element.is_enabled():
+                        try:
+                            self.driver.execute_script("arguments[0].scrollIntoView(true);", element)
+                            time.sleep(1)
+                            element.click()
+                            logger.info(f"成功关闭弹窗: {selector}")
+                            popup_closed = True
+                            time.sleep(1)  # 等待弹窗关闭动画
+                            break
+                        except Exception as e:
+                            logger.debug(f"点击关闭按钮失败: {e}")
+                            # 尝试JavaScript点击
+                            try:
+                                self.driver.execute_script("arguments[0].click();", element)
+                                logger.info(f"使用JavaScript成功关闭弹窗: {selector}")
+                                popup_closed = True
+                                time.sleep(1)
+                                break
+                            except Exception as js_error:
+                                logger.debug(f"JavaScript关闭也失败: {js_error}")
+                if popup_closed:
+                    break
+            except Exception as e:
+                logger.debug(f"选择器 {selector} 失败: {e}")
+                continue
+        
+        if not popup_closed:
+            logger.info("未发现需要关闭的弹窗，或弹窗已自动关闭")
+        
+        # 再次等待，确保页面稳定
+        time.sleep(2)
 
     def wait_and_click(self, selector, by=By.XPATH, timeout=10, description="元素"):
         """等待元素出现并点击"""
@@ -253,6 +383,9 @@ class ArkainSession:
             except:
                 pass
             
+            # 关闭登录后的弹窗
+            self.close_popup()
+            
             # 检查是否成功登录
             if "login" not in current_url_after.lower() or "dashboard" in current_url_after.lower():
                 logger.info("登录成功")
@@ -305,6 +438,99 @@ class ArkainSession:
         
         logger.error("无法访问仪表板")
         return False
+
+    def handle_checkin_secondary_button(self):
+        """处理签到按钮的副按钮（确认按钮）"""
+        logger.info("尝试处理签到按钮的副按钮...")
+        
+        # 等待可能的副按钮出现
+        time.sleep(2)
+        
+        # 常见的副按钮选择器（确认、继续、完成等）
+        secondary_button_selectors = [
+            # 确认按钮
+            "//button[contains(text(), 'Confirm')]",
+            "//button[contains(text(), 'confirm')]",
+            "//button[contains(text(), 'Continue')]",
+            "//button[contains(text(), 'continue')]",
+            "//button[contains(text(), 'OK')]",
+            "//button[contains(text(), 'ok')]",
+            "//button[contains(text(), 'Yes')]",
+            "//button[contains(text(), 'yes')]",
+            "//button[contains(text(), '确定')]",
+            "//button[contains(text(), '确认')]",
+            "//button[contains(text(), '继续')]",
+            "//button[contains(text(), '完成')]",
+            "//button[contains(text(), 'Submit')]",
+            "//button[contains(text(), 'submit')]",
+            "//button[contains(text(), 'Claim')]",
+            "//button[contains(text(), 'claim')]",
+            "//button[contains(text(), 'Get')]",
+            "//button[contains(text(), 'get')]",
+            # 通用按钮类型
+            "//button[@type='submit']",
+            "//button[contains(@class, 'primary')]",
+            "//button[contains(@class, 'confirm')]",
+            "//button[contains(@class, 'continue')]",
+            "//button[contains(@class, 'submit')]",
+            "//a[contains(@class, 'primary')]",
+            "//a[contains(@class, 'confirm')]",
+            "//a[contains(@class, 'continue')]",
+            # 包含特定属性的按钮
+            "//button[contains(@data-testid, 'confirm')]",
+            "//button[contains(@data-testid, 'submit')]",
+            "//button[contains(@data-testid, 'continue')]",
+            # 链接形式的确认
+            "//a[contains(text(), 'Confirm')]",
+            "//a[contains(text(), 'confirm')]",
+            "//a[contains(text(), 'Continue')]",
+            "//a[contains(text(), 'continue')]",
+            "//a[contains(text(), 'OK')]",
+            "//a[contains(text(), 'ok')]"
+        ]
+        
+        secondary_clicked = False
+        for selector in secondary_button_selectors:
+            try:
+                elements = self.driver.find_elements(By.XPATH, selector)
+                for element in elements:
+                    if element.is_displayed() and element.is_enabled():
+                        element_text = element.text.lower()
+                        # 避免重复点击主签到按钮
+                        if any(keyword in element_text for keyword in ['daily check', 'check in', 'check-in']):
+                            continue
+                        
+                        try:
+                            logger.info(f"找到副按钮: {element.text}")
+                            self.driver.execute_script("arguments[0].scrollIntoView(true);", element)
+                            time.sleep(1)
+                            element.click()
+                            logger.info(f"成功点击副按钮: {element.text}")
+                            secondary_clicked = True
+                            time.sleep(2)  # 等待副按钮点击后的反应
+                            break
+                        except Exception as e:
+                            logger.debug(f"点击副按钮失败: {e}")
+                            # 尝试JavaScript点击
+                            try:
+                                self.driver.execute_script("arguments[0].click();", element)
+                                logger.info(f"使用JavaScript成功点击副按钮: {element.text}")
+                                secondary_clicked = True
+                                time.sleep(2)
+                                break
+                            except Exception as js_error:
+                                logger.debug(f"JavaScript点击副按钮也失败: {js_error}")
+                if secondary_clicked:
+                    break
+            except Exception as e:
+                logger.debug(f"选择器 {selector} 失败: {e}")
+                continue
+        
+        if not secondary_clicked:
+            logger.info("未发现需要点击的副按钮，或副按钮已自动处理")
+        
+        # 再次等待，确保操作完成
+        time.sleep(2)
 
     def perform_checkin(self):
         """执行签到操作"""
@@ -386,6 +612,12 @@ class ArkainSession:
             if not checkin_clicked:
                 logger.warning("未找到签到按钮，可能已经签到过或页面结构发生变化")
                 return True
+            
+            # 等待签到按钮点击后的反应
+            time.sleep(2)
+            
+            # 处理签到按钮的副按钮（确认按钮）
+            self.handle_checkin_secondary_button()
             
             # 等待签到完成
             time.sleep(3)
